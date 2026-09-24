@@ -25,6 +25,7 @@ options:
   on_demand: true
   interval_seconds: 900
   theme: ""
+  period: ""
 schema:
   ha_url: url
   ha_token: password
@@ -34,3 +35,4 @@ schema:
   on_demand: bool
   interval_seconds: int(60,86400)
   theme: list(|dark|light)?
+  period: list(|today|week|month|year)?

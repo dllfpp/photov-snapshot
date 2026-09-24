@@ -20,6 +20,8 @@ services:
       ON_DEMAND: "true"
       INTERVAL_SECONDS: "900"
       # THEME: dark
+      # Period shown by the energy cards: today (HA's default), week, month, year.
+      # PERIOD: month
     volumes:
       # The plugin reads the image from the Home Assistant configuration
       # directory. Nothing is uploaded anywhere.

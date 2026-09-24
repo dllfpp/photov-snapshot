@@ -61,6 +61,51 @@ SETTLE_SECONDS = float(setting("settle_seconds", "6"))
 INTERVAL_SECONDS = int(setting("interval_seconds", "900"))
 ON_DEMAND = setting("on_demand", "true").lower() in {"1", "true", "yes"}
 THEME = setting("theme")                         # "", "dark" or "light"
+# Which period the energy cards show: "" leaves Home Assistant's default (today),
+# otherwise "today", "week", "month" or "year".
+PERIOD = setting("period").lower()
+
+# Selects the energy period the way the date-selection card would. The frontend
+# keeps the selection in an energy collection cached on the websocket connection
+# (`_energy`, or `_energy_<key>` per collection_key); each exposes setPeriod().
+SET_PERIOD = r"""
+((period) => {
+  const ha = document.querySelector("home-assistant");
+  const conn = ha && ha.hass && ha.hass.connection;
+  if (!conn) return "no-connection";
+  const keys = Object.keys(conn).filter((k) => k.startsWith("_energy"));
+  if (!keys.length) return "no-energy-collection";
+  const now = new Date();
+  const dayEnd = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
+  let start, end;
+  if (period === "week") {
+    const monday = new Date(now); monday.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+    start = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate());
+    end = dayEnd(new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6));
+  } else if (period === "month") {
+    start = new Date(now.getFullYear(), now.getMonth(), 1);
+    end = dayEnd(new Date(now.getFullYear(), now.getMonth() + 1, 0));
+  } else if (period === "year") {
+    start = new Date(now.getFullYear(), 0, 1);
+    end = dayEnd(new Date(now.getFullYear(), 11, 31));
+  } else {
+    start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    end = dayEnd(now);
+  }
+  let applied = 0;
+  for (const key of keys) {
+    const collection = conn[key];
+    if (collection && typeof collection.setPeriod === "function") {
+      collection.setPeriod(start, end);
+      // setPeriod only moves the bounds; the date selector then calls refresh()
+      // to refetch the statistics, and the cards redraw from that.
+      if (typeof collection.refresh === "function") collection.refresh();
+      applied += 1;
+    }
+  }
+  return applied ? `set ${period} on ${applied} collection(s)` : "no-setPeriod";
+})
+"""
 
 CHROME = shutil.which("chromium-browser") or shutil.which("chromium") or "chromium"
 DEBUG_PORT = 9222
@@ -219,6 +264,16 @@ async def capture(browser: Browser, path: str, destination: Path) -> None:
     _LOGGER.info("rendering %s", url)
     await browser.send("Page.navigate", {"url": url}, session_id=session)
     await asyncio.sleep(SETTLE_SECONDS)
+
+    if PERIOD:
+        outcome = await browser.send(
+            "Runtime.evaluate",
+            {"expression": f"{SET_PERIOD}({json.dumps(PERIOD)})", "returnByValue": True},
+            session_id=session,
+        )
+        _LOGGER.info("period: %s", (outcome.get("result") or {}).get("value"))
+        # The energy cards refetch their statistics for the new range.
+        await asyncio.sleep(max(3.0, SETTLE_SECONDS / 2))
 
     # Strip the application chrome and measure the real content. The frontend is
     # a full-height shell that scrolls internally, so the document height says
