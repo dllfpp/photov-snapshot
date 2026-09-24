@@ -64,6 +64,8 @@ THEME = setting("theme")                         # "", "dark" or "light"
 # Which period the energy cards show: "" leaves Home Assistant's default (today),
 # otherwise "today", "week", "month" or "year".
 PERIOD = setting("period").lower()
+# Log the page's JavaScript errors and console output (diagnostics only).
+DEBUG_CONSOLE = setting("debug_console", "false").lower() in {"1", "true", "yes"}
 
 # Selects the energy period the way the date-selection card would. The frontend
 # keeps the selection in an energy collection cached on the websocket connection
@@ -197,6 +199,28 @@ class Browser:
             raise RuntimeError("Chromium did not start")
         self._ws = await self._session.ws_connect(endpoint, max_msg_size=0)
 
+    def watch_console(self, session_id: str) -> None:
+        self._console_session = session_id
+
+    def _report_event(self, event: dict) -> None:
+        """Log console errors and exceptions from the page (DEBUG_CONSOLE)."""
+        if event.get("sessionId") != getattr(self, "_console_session", None):
+            return
+        method = event.get("method")
+        params = event.get("params", {})
+        if method == "Runtime.exceptionThrown":
+            details = params.get("exceptionDetails", {})
+            text = details.get("text", "")
+            exc = (details.get("exception") or {}).get("description", "")
+            _LOGGER.warning("page exception: %s %s", text, exc[:600])
+        elif method == "Runtime.consoleAPICalled" and params.get("type") in ("error", "warning"):
+            args = " ".join(str(a.get("value", a.get("description", ""))) for a in params.get("args", []))
+            _LOGGER.warning("page console.%s: %s", params.get("type"), args[:600])
+        elif method == "Log.entryAdded":
+            entry = params.get("entry", {})
+            if entry.get("level") in ("error", "warning"):
+                _LOGGER.warning("page log %s: %s %s", entry.get("source"), entry.get("text", "")[:400], entry.get("url", ""))
+
     async def send(self, method: str, params: dict | None = None, session_id: str | None = None):
         assert self._ws is not None
         self._id += 1
@@ -210,6 +234,21 @@ class Browser:
                 if "error" in reply:
                     raise RuntimeError(f"{method}: {reply['error']}")
                 return reply.get("result", {})
+            if "method" in reply:
+                self._report_event(reply)
+
+    async def drain(self, seconds: float) -> None:
+        """Wait while still reading events, so console output is not lost."""
+        assert self._ws is not None
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + seconds
+        while loop.time() < deadline:
+            try:
+                reply = await asyncio.wait_for(self._ws.receive_json(), timeout=max(0.05, deadline - loop.time()))
+            except asyncio.TimeoutError:
+                break
+            if "method" in reply:
+                self._report_event(reply)
 
 
 def token_bootstrap() -> str:
@@ -249,6 +288,11 @@ async def capture(browser: Browser, path: str, destination: Path) -> None:
 
     await browser.send("Page.enable", session_id=session)
     await browser.send("Runtime.enable", session_id=session)
+    if DEBUG_CONSOLE:
+        # Diagnostics: surface the page's own JavaScript errors and console
+        # output in this service's log, for when a dashboard will not render.
+        await browser.send("Log.enable", session_id=session)
+        browser.watch_console(session)
     await browser.send(
         "Page.addScriptToEvaluateOnNewDocument",
         {"source": token_bootstrap()},
@@ -263,7 +307,8 @@ async def capture(browser: Browser, path: str, destination: Path) -> None:
     url = f"{HA_URL}/{path.strip('/')}"
     _LOGGER.info("rendering %s", url)
     await browser.send("Page.navigate", {"url": url}, session_id=session)
-    await asyncio.sleep(SETTLE_SECONDS)
+    # Read console events while waiting, so page errors are not lost.
+    await browser.drain(SETTLE_SECONDS)
 
     if PERIOD:
         outcome = await browser.send(
