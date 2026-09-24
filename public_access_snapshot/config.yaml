@@ -20,7 +20,7 @@ options:
   ha_url: http://homeassistant:8123
   ha_token: ""
   dashboard: ""
-  width: 1280
+  width: 1100
   scale: 1
   on_demand: true
   interval_seconds: 900

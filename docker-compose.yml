@@ -14,7 +14,9 @@ services:
       HA_TOKEN: ${HA_TOKEN}
       # The dashboard and view to photograph, as they appear in the URL.
       DASHBOARD: pv-public/pv
-      WIDTH: "1280"
+      # 1100 gives a three-column masonry with room for the energy cards; wider
+      # viewports make Home Assistant add columns, which narrows every card.
+      WIDTH: "1100"
       SCALE: "1"
       # Render only when someone opens the public page and the image is stale.
       ON_DEMAND: "true"
