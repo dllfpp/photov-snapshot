@@ -1,0 +1,36 @@
+name: Public Access Snapshot
+version: "0.1.0"
+slug: public_access_snapshot
+description: >-
+  Photographs one Home Assistant dashboard so Public Access can publish it
+  exactly as it looks, including custom cards.
+url: https://github.com/dllfpp/photov-snapshot
+arch:
+  - aarch64
+  - amd64
+  - armv7
+init: false
+startup: services
+boot: auto
+# The image is written into the configuration directory, where the Public Access
+# integration reads it. Nothing is uploaded anywhere.
+map:
+  - config:rw
+options:
+  ha_url: http://homeassistant:8123
+  ha_token: ""
+  dashboard: ""
+  width: 1280
+  scale: 1
+  on_demand: true
+  interval_seconds: 900
+  theme: ""
+schema:
+  ha_url: url
+  ha_token: password
+  dashboard: str
+  width: int(480,3840)
+  scale: float(1,3)
+  on_demand: bool
+  interval_seconds: int(60,86400)
+  theme: list(|dark|light)?

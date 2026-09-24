@@ -1,0 +1,26 @@
+# For Home Assistant Container installations. On Home Assistant OS or Supervised,
+# install this as an add-on instead — no Docker knowledge needed.
+services:
+  snapshot:
+    build: ./public_access_snapshot
+    container_name: public-access-snapshot
+    restart: unless-stopped
+    environment:
+      # Where this container reaches Home Assistant. Use the container name on a
+      # shared Docker network, or the host address.
+      HA_URL: http://homeassistant:8123
+      # A long-lived access token from a dedicated Home Assistant user.
+      # It stays inside this container and never reaches a visitor's browser.
+      HA_TOKEN: ${HA_TOKEN}
+      # The dashboard and view to photograph, as they appear in the URL.
+      DASHBOARD: pv-public/pv
+      WIDTH: "1280"
+      SCALE: "1"
+      # Render only when someone opens the public page and the image is stale.
+      ON_DEMAND: "true"
+      INTERVAL_SECONDS: "900"
+      # THEME: dark
+    volumes:
+      # The plugin reads the image from the Home Assistant configuration
+      # directory. Nothing is uploaded anywhere.
+      - /path/to/homeassistant/config:/config
